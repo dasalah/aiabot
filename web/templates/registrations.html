@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}ثبت‌نام‌ها - پنل مدیریت{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📝 ثبت‌نام‌ها {% if event %}برای {{ event.title }}{% endif %}</h1>
+    {% if event %}
+    <a href="{{ url_for('registrations.export_excel', event_id=event.id) }}" class="btn">
+        📥 دانلود Excel
+    </a>
+    {% endif %}
+</div>
+
+{% if registrations %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>نام</th>
+            <th>شماره دانشجویی</th>
+            <th>کد ملی</th>
+            <th>موبایل</th>
+            <th>رویداد</th>
+            <th>نوع ثبت‌نام</th>
+            <th>وضعیت پرداخت</th>
+            <th>وضعیت تأیید</th>
+            <th>عملیات</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for reg in registrations %}
+        <tr>
+            <td>{{ reg.full_name or '-' }}</td>
+            <td>{{ reg.student_id or '-' }}</td>
+            <td>{{ reg.national_code or '-' }}</td>
+            <td>{{ reg.phone or '-' }}</td>
+            <td>{{ reg.event_title or (event.title if event else '-') }}</td>
+            <td>{{ reg.registration_type }}</td>
+            <td>
+                <span class="badge badge-{{ reg.payment_status }}">{{ reg.payment_status }}</span>
+            </td>
+            <td>
+                <span class="badge badge-{{ reg.approval_status }}">{{ reg.approval_status }}</span>
+            </td>
+            <td>
+                {% if reg.approval_status == 'pending' %}
+                <form method="POST" action="{{ url_for('registrations.approve', reg_id=reg.id) }}" style="display:inline">
+                    <button type="submit" class="btn btn-sm btn-success">✅ تأیید</button>
+                </form>
+                <form method="POST" action="{{ url_for('registrations.reject', reg_id=reg.id) }}" style="display:inline">
+                    <label for="note_{{ reg.id }}" class="sr-only">دلیل رد</label>
+                    <input type="text" id="note_{{ reg.id }}" name="note" placeholder="دلیل رد">
+                    <button type="submit" class="btn btn-sm btn-danger">❌ رد</button>
+                </form>
+                {% else %}
+                {{ reg.approval_status }}
+                {% if reg.approval_note %}<small>({{ reg.approval_note }})</small>{% endif %}
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty-state">هیچ ثبت‌نامی وجود ندارد.</p>
+{% endif %}
+{% endblock %}
