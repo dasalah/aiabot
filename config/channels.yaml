@@ -1,0 +1,7 @@
+required_channels:
+  - channel_id: -1001234567890
+    username: "usb_ai_assoc"
+    title: "کانال انجمن علمی هوش مصنوعی"
+  - channel_id: -1009876543210
+    username: "usb_announcements"
+    title: "کانال اطلاع‌رسانی دانشگاه"

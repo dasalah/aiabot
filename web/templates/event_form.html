@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}{{ 'ویرایش رویداد' if event else 'رویداد جدید' }} - پنل مدیریت{% endblock %}
+{% block content %}
+<h1>{{ 'ویرایش رویداد' if event else 'رویداد جدید' }}</h1>
+
+<form method="POST" class="event-form">
+    <div class="form-row">
+        <div class="form-group">
+            <label>عنوان *</label>
+            <input type="text" name="title" value="{{ event.title if event else '' }}" required>
+        </div>
+        <div class="form-group">
+            <label>وضعیت</label>
+            <select name="status">
+                {% for s in ['draft', 'active', 'closed', 'archived'] %}
+                <option value="{{ s }}" {{ 'selected' if event and event.status == s else '' }}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>توضیحات</label>
+        <textarea name="description" rows="4">{{ event.description if event else '' }}</textarea>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label>تاریخ رویداد</label>
+            <input type="date" name="event_date" value="{{ event.event_date if event else '' }}">
+        </div>
+        <div class="form-group">
+            <label>ساعت رویداد</label>
+            <input type="time" name="event_time" value="{{ event.event_time if event else '' }}">
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>مکان</label>
+        <input type="text" name="location" value="{{ event.location if event else '' }}">
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label>ظرفیت</label>
+            <input type="number" name="capacity" value="{{ event.capacity if event else 0 }}" min="0">
+        </div>
+        <div class="form-group">
+            <label>هزینه ثبت‌نام (تومان)</label>
+            <input type="number" name="price" value="{{ event.price if event else 0 }}" min="0">
+        </div>
+        <div class="form-group">
+            <label>هزینه گواهی (تومان)</label>
+            <input type="number" name="certificate_fee" value="{{ event.certificate_fee if event else 0 }}" min="0">
+        </div>
+    </div>
+
+    <div class="form-row checkboxes">
+        <label>
+            <input type="checkbox" name="is_paid" {{ 'checked' if event and event.is_paid else '' }}>
+            رویداد پولی
+        </label>
+        <label>
+            <input type="checkbox" name="is_university_only" {{ 'checked' if event and event.is_university_only else '' }}>
+            فقط دانشجویان دانشگاه
+        </label>
+        <label>
+            <input type="checkbox" name="waitlist_enabled" {{ 'checked' if event and event.waitlist_enabled else '' }}>
+            لیست انتظار
+        </label>
+        <label>
+            <input type="checkbox" name="registration_open" {{ 'checked' if event and event.registration_open else '' }}>
+            ثبت‌نام باز
+        </label>
+    </div>
+
+    <div class="form-group">
+        <label>حداکثر لیست انتظار</label>
+        <input type="number" name="max_waitlist" value="{{ event.max_waitlist if event else 0 }}" min="0">
+    </div>
+
+    <div class="form-group">
+        <label>فیلدهای اجباری</label>
+        <div class="checkbox-group">
+            {% for field in ['full_name', 'student_id', 'national_code', 'email', 'phone'] %}
+            <label>
+                <input type="checkbox" name="required_fields" value="{{ field }}"
+                    {{ 'checked' if event and field in event.required_fields else '' }}>
+                {{ field }}
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>فیلدهای اختیاری</label>
+        <div class="checkbox-group">
+            {% for field in ['full_name', 'student_id', 'national_code', 'email', 'phone'] %}
+            <label>
+                <input type="checkbox" name="optional_fields" value="{{ field }}"
+                    {{ 'checked' if event and field in event.optional_fields else '' }}>
+                {{ field }}
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">ذخیره</button>
+        <a href="{{ url_for('events.list_events') }}" class="btn">انصراف</a>
+    </div>
+</form>
+{% endblock %}

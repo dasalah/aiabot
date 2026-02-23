@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}داشبورد - پنل مدیریت{% endblock %}
+{% block content %}
+<h1>📊 داشبورد</h1>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon">👥</div>
+        <div class="stat-value">{{ stats.total_users }}</div>
+        <div class="stat-label">کاربران</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">📅</div>
+        <div class="stat-value">{{ stats.total_events }}</div>
+        <div class="stat-label">رویدادها</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">📝</div>
+        <div class="stat-value">{{ stats.total_registrations }}</div>
+        <div class="stat-label">ثبت‌نام‌ها</div>
+    </div>
+    <div class="stat-card pending">
+        <div class="stat-icon">⏳</div>
+        <div class="stat-value">{{ stats.pending_registrations }}</div>
+        <div class="stat-label">در انتظار تأیید</div>
+    </div>
+</div>
+
+{% if recent_regs %}
+<h2>⏳ ثبت‌نام‌های اخیر در انتظار</h2>
+<table class="table">
+    <thead>
+        <tr>
+            <th>نام</th>
+            <th>رویداد</th>
+            <th>وضعیت پرداخت</th>
+            <th>تاریخ</th>
+            <th>عملیات</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for reg in recent_regs %}
+        <tr>
+            <td>{{ reg.full_name or '-' }}</td>
+            <td>{{ reg.event_title or '-' }}</td>
+            <td>{{ reg.payment_status }}</td>
+            <td>{{ reg.created_at }}</td>
+            <td>
+                <a href="{{ url_for('registrations.list_registrations') }}" class="btn btn-sm">مشاهده</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}رویدادها - پنل مدیریت{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📅 رویدادها</h1>
+    <a href="{{ url_for('events.new_event') }}" class="btn btn-primary">+ رویداد جدید</a>
+</div>
+
+{% if events %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>عنوان</th>
+            <th>تاریخ</th>
+            <th>مکان</th>
+            <th>ظرفیت</th>
+            <th>ثبت‌نام‌ها</th>
+            <th>وضعیت</th>
+            <th>عملیات</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for event in events %}
+        <tr>
+            <td>{{ event.title }}</td>
+            <td>{{ event.event_date or '-' }}</td>
+            <td>{{ event.location or '-' }}</td>
+            <td>{{ event.capacity }}</td>
+            <td>{{ event.current_registrations }}</td>
+            <td>
+                <span class="badge badge-{{ event.status }}">{{ event.status }}</span>
+            </td>
+            <td>
+                <a href="{{ url_for('events.edit_event', event_id=event.id) }}" class="btn btn-sm">ویرایش</a>
+                <a href="{{ url_for('registrations.event_registrations', event_id=event.id) }}" class="btn btn-sm">ثبت‌نام‌ها</a>
+                <a href="{{ url_for('media.event_media', event_id=event.id) }}" class="btn btn-sm">رسانه</a>
+                <form method="POST" action="{{ url_for('events.delete_event', event_id=event.id) }}" style="display:inline">
+                    <button type="submit" class="btn btn-sm btn-danger"
+                            onclick="return confirm('آیا مطمئنید؟')">حذف</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty-state">هیچ رویدادی وجود ندارد.</p>
+{% endif %}
+{% endblock %}
