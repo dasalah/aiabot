@@ -86,6 +86,8 @@ registration:
   payment_type_select: "لطفاً نوع ثبت‌نام خود را انتخاب کنید:"
   free_registration: "ثبت‌نام رایگان"
   paid_registration: "ثبت‌نام با گواهی"
+  optional_hint: "(اختیاری - برای رد کردن /skip بزنید)"
+  skip_not_allowed: "❌ این فیلد اجباری است و نمی‌توان آن را رد کرد."
 
 payment:
   required: |
@@ -172,6 +174,9 @@ admin:
   registration_approved: "✅ ثبت‌نام تأیید شد."
   registration_rejected: "❌ ثبت‌نام رد شد."
   broadcast_sent: "✅ پیام برادکست با موفقیت ارسال شد."
+  broadcast_ask_text: "📢 متن پیام برادکست را وارد کنید:"
+  broadcast_ask_target: "📢 لطفاً مخاطبین برادکست را انتخاب کنید:"
+  broadcast_queued: "✅ پیام برادکست در صف ارسال قرار گرفت."
   event_created: "✅ رویداد با موفقیت ایجاد شد."
   event_updated: "✅ رویداد با موفقیت ویرایش شد."
   event_deleted: "✅ رویداد با موفقیت حذف شد."

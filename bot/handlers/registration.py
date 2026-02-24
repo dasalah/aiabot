@@ -14,8 +14,18 @@ from bot.utils.validators import (
     validate_student_id, validate_full_name,
 )
 from bot.utils.persian import normalize_digits
+from bot.utils.jalali import format_jalali_date
 
 logger = logging.getLogger(__name__)
+
+# Mapping from FSM state → field key (used for skip logic)
+_STATE_TO_FIELD = {
+    fsm.STATE_REG_FULL_NAME: "full_name",
+    fsm.STATE_REG_STUDENT_ID: "student_id",
+    fsm.STATE_REG_NATIONAL_CODE: "national_code",
+    fsm.STATE_REG_EMAIL: "email",
+    fsm.STATE_REG_PHONE: "phone",
+}
 
 
 def _build_confirm_text(data: dict, event: dict) -> str:
@@ -23,11 +33,11 @@ def _build_confirm_text(data: dict, event: dict) -> str:
     settings = get_settings()
     reg_type = "رایگان" if data.get("registration_type") == "free" else "با گواهی"
     return msg["registration"]["confirm_info"].format(
-        full_name=data.get("full_name", "-"),
-        student_id=data.get("student_id", "-"),
-        national_code=data.get("national_code", "-"),
-        email=data.get("email", "-"),
-        phone=data.get("phone", "-"),
+        full_name=data.get("full_name") or "-",
+        student_id=data.get("student_id") or "-",
+        national_code=data.get("national_code") or "-",
+        email=data.get("email") or "-",
+        phone=data.get("phone") or "-",
         registration_type=reg_type,
     )
 
@@ -49,8 +59,8 @@ def register(client):
         sender = await event.get_sender()
         user = db.get_user(sender.id)
         if not user:
-            user_id = db.upsert_user(sender.id, sender.username,
-                                     sender.first_name, sender.last_name)
+            db.upsert_user(sender.id, sender.username,
+                           sender.first_name, sender.last_name)
             user = db.get_user(sender.id)
 
         if db.get_user_registration(user["id"], event_id):
@@ -75,14 +85,14 @@ def register(client):
             return
 
         # Start FSM
-        required = ev.get("required_fields", [])
-        optional = ev.get("optional_fields", [])
         fsm.set_state(sender.id, fsm.STATE_REG_FULL_NAME,
                       {"event_id": event_id})
 
-        next_state = fsm.get_next_field(ev, {})
-        if next_state:
-            await _ask_field(event, sender.id, next_state, msg)
+        result = fsm.get_next_field(ev, {})
+        if result:
+            next_state, is_optional = result
+            fsm.set_state(sender.id, next_state, {"event_id": event_id})
+            await _ask_field(event, sender.id, next_state, is_optional, msg)
         else:
             # No fields needed – go straight to payment/confirm
             await _handle_payment_step(event, sender.id, ev, {}, msg)
@@ -114,6 +124,41 @@ def register(client):
         fsm.clear_state(sender.id)
         msg = get_messages()
         await event.edit(msg["registration"]["cancelled"])
+
+    @client.on(events.NewMessage(pattern=r"^/skip$"))
+    async def skip_field(event):
+        sender = await event.get_sender()
+        if not sender:
+            return
+        state, data = fsm.get_state(sender.id)
+        if state not in _STATE_TO_FIELD:
+            return
+
+        msg = get_messages()
+        event_id = data.get("event_id")
+        ev = db.get_event(event_id) if event_id else None
+        if not ev:
+            fsm.clear_state(sender.id)
+            await event.respond(msg["errors"]["generic"])
+            return
+
+        # Check if this field is optional
+        field_key = _STATE_TO_FIELD[state]
+        optional = ev.get("optional_fields", [])
+        if field_key not in optional:
+            await event.respond(msg["registration"]["skip_not_allowed"])
+            return
+
+        # Skip: store None for this field, move to next
+        data[field_key] = None
+        result = fsm.get_next_field(ev, data)
+        if result:
+            next_state, is_optional = result
+            fsm.set_state(sender.id, next_state, data)
+            await _ask_field(event, sender.id, next_state, is_optional, msg)
+        else:
+            fsm.set_state(sender.id, state, data)
+            await _handle_payment_step(event, sender.id, ev, data, msg)
 
     @client.on(events.NewMessage)
     async def handle_registration_input(event):
@@ -165,13 +210,12 @@ def register(client):
         fsm.set_state(sender.id, state, data)
 
         # Find next field
-        required = ev.get("required_fields", [])
-        optional = ev.get("optional_fields", [])
-        next_state = fsm.get_next_field(ev, data)
+        result = fsm.get_next_field(ev, data)
 
-        if next_state:
+        if result:
+            next_state, is_optional = result
             fsm.set_state(sender.id, next_state, data)
-            await _ask_field(event, sender.id, next_state, msg)
+            await _ask_field(event, sender.id, next_state, is_optional, msg)
         else:
             await _handle_payment_step(event, sender.id, ev, data, msg)
 
@@ -255,7 +299,8 @@ def register(client):
         await event.edit(msg["registration"]["cancelled"])
 
 
-async def _ask_field(event, telegram_id: int, state: str, msg: dict) -> None:
+async def _ask_field(event, telegram_id: int, state: str,
+                     is_optional: bool, msg: dict) -> None:
     prompts = {
         fsm.STATE_REG_FULL_NAME: msg["registration"]["ask_full_name"],
         fsm.STATE_REG_STUDENT_ID: msg["registration"]["ask_student_id"],
@@ -263,7 +308,9 @@ async def _ask_field(event, telegram_id: int, state: str, msg: dict) -> None:
         fsm.STATE_REG_EMAIL: msg["registration"]["ask_email"],
         fsm.STATE_REG_PHONE: msg["registration"]["ask_phone"],
     }
-    prompt = prompts.get(state)
+    prompt = prompts.get(state, "")
+    if is_optional and prompt:
+        prompt = f"{prompt}\n\n{msg['registration']['optional_hint']}"
     if prompt:
         if hasattr(event, "edit"):
             try:
@@ -363,11 +410,11 @@ async def _notify_admins_new_registration(client, reg_id: int, data: dict,
     admin_ids = set([a["telegram_id"] for a in admins] + SUPERADMIN_IDS)
 
     text = msg["admin"]["new_registration"].format(
-        full_name=data.get("full_name", "-"),
-        student_id=data.get("student_id", "-"),
-        national_code=data.get("national_code", "-"),
-        email=data.get("email", "-"),
-        phone=data.get("phone", "-"),
+        full_name=data.get("full_name") or "-",
+        student_id=data.get("student_id") or "-",
+        national_code=data.get("national_code") or "-",
+        email=data.get("email") or "-",
+        phone=data.get("phone") or "-",
         event_title=ev.get("title", "-"),
         registration_type=data.get("registration_type", "free"),
         payment_status="در انتظار" if data.get("payment_receipt_file_id") else "بدون پرداخت",

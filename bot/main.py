@@ -20,7 +20,7 @@ from bot.config import (
 from bot import database as db
 from bot.handlers import start, events as events_handler, registration
 from bot.handlers import archive, admin, membership
-from bot.utils.notifications import notification_worker
+from bot.utils.notifications import notification_worker, broadcast_worker
 
 
 def setup_logging():
@@ -85,8 +85,9 @@ async def main():
 
     logger.info("All handlers registered.")
 
-    # Start notification background task
+    # Start background tasks
     asyncio.create_task(notification_worker(client))
+    asyncio.create_task(broadcast_worker(client))
 
     me = await client.get_me()
     logger.info("Bot started as @%s", me.username)

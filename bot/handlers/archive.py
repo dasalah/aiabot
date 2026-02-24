@@ -1,11 +1,13 @@
 """Past events archive handler with media browsing."""
 import logging
+import os
 from telethon import events, Button
 
 from bot import database as db
 from bot.config import get_messages
 from bot.middlewares.membership import enforce_membership
 from bot.utils.keyboards import archive_events_keyboard, archive_media_keyboard
+from bot.utils.jalali import format_jalali_date
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ def register(client):
 
         text = msg["archive"]["event_detail"].format(
             title=ev.get("title", ""),
-            event_date=ev.get("event_date", ""),
+            event_date=format_jalali_date(ev.get("event_date", "")),
             location=ev.get("location", ""),
             description=ev.get("description", ""),
         )
@@ -88,16 +90,34 @@ def register(client):
 
         try:
             file_id = item.get("file_id")
-            media_type = item.get("media_type", "photo")
+            file_path = item.get("file_path")
+            chat = await event.get_input_chat()
+
             if file_id:
-                # Send media as a new message rather than editing
                 await client.send_file(
-                    await event.get_input_chat(),
+                    chat,
                     file_id,
                     caption=full_caption,
                     buttons=buttons,
                 )
                 await event.answer()
+            elif file_path and os.path.isfile(file_path):
+                sent_msg = await client.send_file(
+                    chat,
+                    file_path,
+                    caption=full_caption,
+                    buttons=buttons,
+                )
+                await event.answer()
+                # Cache the Telegram file_id for future sends.
+                # pack_bot_file_id converts the media to a Bot API file_id string
+                # that Telethon can use in subsequent send_file() calls.
+                try:
+                    from telethon.utils import pack_bot_file_id
+                    cached_id = pack_bot_file_id(sent_msg.media)
+                    db.update_media_file_id(item["id"], cached_id)
+                except Exception:
+                    pass
             else:
                 await event.answer(msg["errors"]["not_found"], alert=True)
         except Exception as e:

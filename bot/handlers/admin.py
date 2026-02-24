@@ -4,7 +4,7 @@ from telethon import events, Button
 
 from bot import database as db
 from bot import fsm
-from bot.config import get_messages
+from bot.config import get_messages, BOT_USERNAME
 from bot.middlewares.auth import is_admin, is_superadmin
 from bot.utils.keyboards import admin_panel_keyboard
 
@@ -25,6 +25,78 @@ def register(client):
             admin_name=sender.first_name or "ادمین"
         )
         await event.respond(text, buttons=admin_panel_keyboard())
+
+    @client.on(events.NewMessage(pattern=r"^/events$"))
+    async def events_command(event):
+        sender = await event.get_sender()
+        if not is_admin(sender.id):
+            msg = get_messages()
+            await event.respond(msg["admin"]["not_authorized"])
+            return
+        all_events = db.get_all_events()
+        msg = get_messages()
+        if not all_events:
+            await event.respond("هیچ رویدادی وجود ندارد.")
+            return
+        buttons = []
+        for ev in all_events[:10]:
+            status_icon = {"draft": "📝", "active": "✅", "closed": "🔒",
+                           "archived": "📂"}.get(ev["status"], "❓")
+            label = f"{status_icon} {ev['title']}"
+            buttons.append([Button.inline(label, f"admin_event:{ev['id']}".encode())])
+        buttons.append([Button.inline(msg["menu"]["back"], b"admin_panel")])
+        await event.respond("📅 **رویدادها:**", buttons=buttons)
+
+    @client.on(events.NewMessage(pattern=r"^/stats$"))
+    async def stats_command(event):
+        sender = await event.get_sender()
+        if not is_admin(sender.id):
+            msg = get_messages()
+            await event.respond(msg["admin"]["not_authorized"])
+            return
+        stats = db.get_stats()
+        msg = get_messages()
+        await event.respond(msg["admin"]["stats"].format(**stats))
+
+    @client.on(events.NewMessage(pattern=r"^/pending$"))
+    async def pending_command(event):
+        sender = await event.get_sender()
+        if not is_admin(sender.id):
+            msg = get_messages()
+            await event.respond(msg["admin"]["not_authorized"])
+            return
+        pending = db.get_pending_registrations()
+        msg = get_messages()
+        if not pending:
+            await event.respond("هیچ ثبت‌نام در انتظاری وجود ندارد.")
+            return
+        reg = pending[0]
+        from bot.utils.keyboards import admin_registration_keyboard
+        text = msg["admin"]["new_registration"].format(
+            full_name=reg.get("full_name", "-"),
+            student_id=reg.get("student_id", "-"),
+            national_code=reg.get("national_code", "-"),
+            email=reg.get("email", "-"),
+            phone=reg.get("phone", "-"),
+            event_title=reg.get("event_title", "-"),
+            registration_type=reg.get("registration_type", "-"),
+            payment_status=reg.get("payment_status", "-"),
+            username=reg.get("username") or "-",
+            user_id=reg.get("telegram_id", "-"),
+        )
+        await event.respond(text, buttons=admin_registration_keyboard(reg["id"]),
+                            parse_mode="markdown")
+
+    @client.on(events.NewMessage(pattern=r"^/broadcast$"))
+    async def broadcast_command(event):
+        sender = await event.get_sender()
+        if not is_admin(sender.id):
+            msg = get_messages()
+            await event.respond(msg["admin"]["not_authorized"])
+            return
+        msg = get_messages()
+        fsm.set_state(sender.id, fsm.STATE_ADMIN_BROADCAST_TEXT, {})
+        await event.respond(msg["admin"]["broadcast_ask_text"])
 
     @client.on(events.CallbackQuery(data=b"admin_panel"))
     async def admin_panel_callback(event):
@@ -111,9 +183,10 @@ def register(client):
 
         ev = db.get_event(reg["event_id"])
         if user and ev:
+            from bot.utils.jalali import format_jalali_date
             user_msg = msg["approval"]["approved"].format(
                 event_title=ev.get("title", ""),
-                event_date=ev.get("event_date", ""),
+                event_date=format_jalali_date(ev.get("event_date", "")),
                 location=ev.get("location", ""),
                 note="",
             )
@@ -143,47 +216,94 @@ def register(client):
                       {"reg_id": reg_id})
         await event.edit(msg["admin"]["ask_reject_reason"])
 
+    @client.on(events.CallbackQuery(pattern=rb"^broadcast_target:(.+)$"))
+    async def broadcast_target_callback(event):
+        sender = await event.get_sender()
+        if not is_admin(sender.id):
+            msg = get_messages()
+            await event.answer(msg["admin"]["not_authorized"], alert=True)
+            return
+        state, data = fsm.get_state(sender.id)
+        if state != fsm.STATE_ADMIN_BROADCAST_TARGET:
+            return
+        target = event.pattern_match.group(1).decode()
+        message_text = data.get("broadcast_text", "")
+        if not message_text:
+            fsm.clear_state(sender.id)
+            return
+        db.create_broadcast(
+            message_text=message_text,
+            target=target,
+            event_id=None,
+            media_file_id=None,
+            media_type=None,
+            sent_count=0,
+            failed_count=0,
+            sent_by=sender.id,
+        )
+        fsm.clear_state(sender.id)
+        msg = get_messages()
+        await event.edit(msg["admin"]["broadcast_queued"])
+
     @client.on(events.NewMessage)
-    async def admin_reject_reason(event):
+    async def admin_fsm_handler(event):
         sender = await event.get_sender()
         if not sender:
             return
         state, data = fsm.get_state(sender.id)
-        if state != fsm.STATE_ADMIN_REJECT_REASON:
-            return
-        reason = event.message.text or ""
-        reg_id = data.get("reg_id")
-        if not reg_id:
+
+        if state == fsm.STATE_ADMIN_REJECT_REASON:
+            reason = event.message.text or ""
+            reg_id = data.get("reg_id")
+            if not reg_id:
+                fsm.clear_state(sender.id)
+                return
+
+            reg = db.get_registration(reg_id)
+            if not reg:
+                fsm.clear_state(sender.id)
+                return
+
+            db.update_registration(reg_id, {
+                "approval_status": "rejected",
+                "approved_by": sender.id,
+                "approval_note": reason,
+            })
             fsm.clear_state(sender.id)
-            return
 
-        reg = db.get_registration(reg_id)
-        if not reg:
-            fsm.clear_state(sender.id)
-            return
+            msg = get_messages()
+            await event.respond(msg["admin"]["registration_rejected"])
 
-        db.update_registration(reg_id, {
-            "approval_status": "rejected",
-            "approved_by": sender.id,
-            "approval_note": reason,
-        })
-        fsm.clear_state(sender.id)
+            # Notify user
+            user = _get_user_from_reg(reg_id)
+            ev = db.get_event(reg["event_id"])
+            if user and ev:
+                user_msg = msg["approval"]["rejected"].format(
+                    event_title=ev.get("title", ""),
+                    reason=reason,
+                )
+                try:
+                    await client.send_message(user["telegram_id"], user_msg)
+                except Exception as e:
+                    logger.warning("Failed to notify user: %s", e)
 
-        msg = get_messages()
-        await event.respond(msg["admin"]["registration_rejected"])
-
-        # Notify user
-        user = _get_user_from_reg(reg_id)
-        ev = db.get_event(reg["event_id"])
-        if user and ev:
-            user_msg = msg["approval"]["rejected"].format(
-                event_title=ev.get("title", ""),
-                reason=reason,
-            )
-            try:
-                await client.send_message(user["telegram_id"], user_msg)
-            except Exception as e:
-                logger.warning("Failed to notify user: %s", e)
+        elif state == fsm.STATE_ADMIN_BROADCAST_TEXT:
+            if not is_admin(sender.id):
+                fsm.clear_state(sender.id)
+                return
+            text = event.message.text or ""
+            if not text:
+                return
+            data["broadcast_text"] = text
+            fsm.set_state(sender.id, fsm.STATE_ADMIN_BROADCAST_TARGET, data)
+            msg = get_messages()
+            # Build target selection buttons
+            buttons = [[Button.inline("📢 همه کاربران", b"broadcast_target:all")]]
+            all_events = db.get_all_events()
+            for ev in all_events[:10]:
+                btn_data = f"broadcast_target:event_{ev['id']}".encode()
+                buttons.append([Button.inline(f"📅 {ev['title']}", btn_data)])
+            await event.respond(msg["admin"]["broadcast_ask_target"], buttons=buttons)
 
     @client.on(events.NewMessage(pattern=r"^/addadmin (\d+)$"))
     async def add_admin_command(event):

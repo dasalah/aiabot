@@ -3,6 +3,7 @@ import json
 from quart import Blueprint, render_template, request, redirect, url_for, flash
 from web.auth import login_required
 from bot import database as db
+from bot.config import BOT_USERNAME
 
 events_bp = Blueprint("events", __name__, url_prefix="/events")
 
@@ -21,6 +22,7 @@ async def new_event():
         form = await request.form
         required_fields = form.getlist("required_fields")
         optional_fields = form.getlist("optional_fields")
+        slug = form.get("slug", "").strip() or None
         data = {
             "title": form.get("title", ""),
             "description": form.get("description", ""),
@@ -38,9 +40,13 @@ async def new_event():
             "optional_fields": optional_fields,
             "status": form.get("status", "draft"),
             "registration_open": bool(form.get("registration_open")),
+            "slug": slug,
         }
-        db.create_event(data)
+        event_id = db.create_event(data)
         await flash("رویداد با موفقیت ایجاد شد.", "success")
+        if slug and BOT_USERNAME:
+            deep_link = f"https://t.me/{BOT_USERNAME}?start=event_{slug}"
+            await flash(f"لینک دیپ‌لینک رویداد: {deep_link}", "info")
         return redirect(url_for("events.list_events"))
     return await render_template("event_form.html", event=None)
 
@@ -56,6 +62,7 @@ async def edit_event(event_id: int):
         form = await request.form
         required_fields = form.getlist("required_fields")
         optional_fields = form.getlist("optional_fields")
+        slug = form.get("slug", "").strip() or None
         data = {
             "title": form.get("title", ""),
             "description": form.get("description", ""),
@@ -73,6 +80,7 @@ async def edit_event(event_id: int):
             "optional_fields": optional_fields,
             "status": form.get("status", "draft"),
             "registration_open": 1 if form.get("registration_open") else 0,
+            "slug": slug,
         }
         db.update_event(event_id, data)
         await flash("رویداد با موفقیت ویرایش شد.", "success")

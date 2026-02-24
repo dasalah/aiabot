@@ -12,6 +12,8 @@ STATE_REG_PAYMENT_TYPE = "reg_payment_type"
 STATE_REG_RECEIPT = "reg_receipt"
 STATE_REG_CONFIRM = "reg_confirm"
 STATE_ADMIN_REJECT_REASON = "admin_reject_reason"
+STATE_ADMIN_BROADCAST_TEXT = "admin_broadcast_text"
+STATE_ADMIN_BROADCAST_TARGET = "admin_broadcast_target"
 
 
 def get_state(telegram_id: int) -> tuple[str, dict]:
@@ -35,11 +37,10 @@ def clear_state(telegram_id: int) -> None:
     db.clear_user_state(telegram_id)
 
 
-def get_next_field(event: dict, current_data: dict) -> str | None:
-    """Return the next field that needs to be collected based on event config."""
+def get_next_field(event: dict, current_data: dict) -> tuple[str, bool] | None:
+    """Return (next_state, is_optional) for the next uncollected field, or None."""
     required = event.get("required_fields", [])
     optional = event.get("optional_fields", [])
-    all_fields = required + optional
     field_states = {
         "full_name": STATE_REG_FULL_NAME,
         "student_id": STATE_REG_STUDENT_ID,
@@ -47,7 +48,10 @@ def get_next_field(event: dict, current_data: dict) -> str | None:
         "email": STATE_REG_EMAIL,
         "phone": STATE_REG_PHONE,
     }
-    for field in all_fields:
+    for field in required:
         if field in field_states and field not in current_data:
-            return field_states[field]
+            return field_states[field], False
+    for field in optional:
+        if field in field_states and field not in current_data:
+            return field_states[field], True
     return None

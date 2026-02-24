@@ -62,3 +62,8 @@ SUPERADMIN_IDS: list[int] = [
 WEB_SECRET_KEY: str = os.environ.get("WEB_SECRET_KEY", "dev-secret-key")
 WEB_ADMIN_PASSWORD: str = os.environ.get("WEB_ADMIN_PASSWORD", "admin")
 DATA_DIR: str = os.environ.get("DATA_DIR", os.path.join(_BASE, "data"))
+BOT_USERNAME: str = os.environ.get("BOT_USERNAME", "")
+REQUIRED_CHANNELS: list[str] = [
+    ch.strip() for ch in os.environ.get("REQUIRED_CHANNELS", "").split(",")
+    if ch.strip()
+]

@@ -19,6 +19,14 @@
         </div>
     </div>
 
+    <div class="form-row">
+        <div class="form-group">
+            <label>شناسه یکتا (slug) - برای دیپ‌لینک</label>
+            <input type="text" name="slug" value="{{ event.slug if event and event.slug else '' }}"
+                   placeholder="مثال: ainight (فقط حروف انگلیسی، اعداد و خط تیره)">
+        </div>
+    </div>
+
     <div class="form-group">
         <label>توضیحات</label>
         <textarea name="description" rows="4">{{ event.description if event else '' }}</textarea>

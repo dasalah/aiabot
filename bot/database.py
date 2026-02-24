@@ -188,6 +188,22 @@ def init_db():
     """
     with get_cursor() as cur:
         cur.executescript(schema)
+
+    # Migrations for existing databases (safe to run multiple times)
+    migrations = [
+        "ALTER TABLE events ADD COLUMN slug TEXT",
+        "ALTER TABLE broadcasts ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_slug ON events(slug)",
+    ]
+    for migration in migrations:
+        try:
+            with get_cursor() as cur:
+                cur.execute(migration)
+        except Exception as e:
+            err = str(e).lower()
+            if "duplicate column" not in err and "already exists" not in err:
+                logger.warning("Migration warning (%s): %s", migration[:40], e)
+
     logger.info("Database initialized.")
 
 
@@ -277,8 +293,8 @@ def create_event(data: dict) -> int:
             (title, description, event_date, event_time, location, capacity,
              price, certificate_fee, is_paid, is_university_only,
              waitlist_enabled, max_waitlist, required_fields, optional_fields,
-             status, registration_open, reg_token, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             status, registration_open, reg_token, created_by, slug)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.get("title"), data.get("description"),
             data.get("event_date"), data.get("event_time"),
@@ -291,6 +307,7 @@ def create_event(data: dict) -> int:
             data.get("status", "draft"),
             int(data.get("registration_open", False)),
             token, data.get("created_by"),
+            data.get("slug") or None,
         ))
         return cur.lastrowid
 
@@ -301,11 +318,11 @@ def update_event(event_id: int, data: dict) -> None:
     allowed = ["title", "description", "event_date", "event_time", "location",
                 "capacity", "price", "certificate_fee", "is_paid",
                 "is_university_only", "waitlist_enabled", "max_waitlist",
-                "status", "registration_open"]
+                "status", "registration_open", "slug"]
     for key in allowed:
         if key in data:
             fields.append(f"{key}=?")
-            values.append(data[key])
+            values.append(data[key] if key != "slug" else (data[key] or None))
     if "required_fields" in data:
         fields.append("required_fields=?")
         values.append(json.dumps(data["required_fields"]))
@@ -338,6 +355,18 @@ def get_event(event_id: int) -> dict | None:
 def get_event_by_token(token: str) -> dict | None:
     with get_cursor() as cur:
         cur.execute("SELECT * FROM events WHERE reg_token=?", (token,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["required_fields"] = json.loads(d["required_fields"] or "[]")
+        d["optional_fields"] = json.loads(d["optional_fields"] or "[]")
+        return d
+
+
+def get_event_by_slug(slug: str) -> dict | None:
+    with get_cursor() as cur:
+        cur.execute("SELECT * FROM events WHERE slug=?", (slug,))
         row = cur.fetchone()
         if not row:
             return None
@@ -521,6 +550,11 @@ def delete_media(media_id: int) -> None:
         cur.execute("DELETE FROM event_media WHERE id=?", (media_id,))
 
 
+def update_media_file_id(media_id: int, file_id: str) -> None:
+    with get_cursor() as cur:
+        cur.execute("UPDATE event_media SET file_id=? WHERE id=?", (file_id, media_id))
+
+
 # --- Channel helpers ---
 
 def get_required_channels() -> list[dict]:
@@ -617,8 +651,40 @@ def create_broadcast(message_text: str, target: str, event_id: int | None,
         cur.execute("""
             INSERT INTO broadcasts
             (message_text, target, event_id, media_file_id, media_type,
-             sent_count, failed_count, sent_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             sent_count, failed_count, sent_by, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
         """, (message_text, target, event_id, media_file_id, media_type,
               sent_count, failed_count, sent_by))
         return cur.lastrowid
+
+
+def get_pending_broadcasts() -> list[dict]:
+    with get_cursor() as cur:
+        cur.execute("""
+            SELECT * FROM broadcasts
+            WHERE status='pending'
+            ORDER BY created_at
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+
+def update_broadcast_counts(broadcast_id: int, sent_count: int,
+                            failed_count: int, status: str = "sent") -> None:
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE broadcasts
+            SET sent_count=?, failed_count=?, status=?
+            WHERE id=?
+        """, (sent_count, failed_count, status, broadcast_id))
+
+
+def get_event_registered_users(event_id: int) -> list[dict]:
+    """Return users with approved registrations for a given event."""
+    with get_cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT u.*
+            FROM users u
+            JOIN registrations r ON r.user_id = u.id
+            WHERE r.event_id=? AND r.approval_status='approved' AND u.is_blocked=0
+        """, (event_id,))
+        return [dict(row) for row in cur.fetchall()]
