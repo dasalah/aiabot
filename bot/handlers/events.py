@@ -6,6 +6,7 @@ from bot import database as db
 from bot.config import get_messages
 from bot.middlewares.membership import enforce_membership
 from bot.utils.keyboards import events_keyboard, event_detail_keyboard
+from bot.utils.jalali import format_jalali_date
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def register(client):
         text = ev_msg["detail"].format(
             title=ev["title"],
             description=ev.get("description", ""),
-            event_date=ev.get("event_date", ""),
+            event_date=format_jalali_date(ev.get("event_date", "")),
             event_time=ev.get("event_time", ""),
             location=ev.get("location", ""),
             capacity=ev.get("capacity", 0),

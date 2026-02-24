@@ -65,3 +65,61 @@ async def notification_worker(client) -> None:
         except Exception as e:
             logger.error("Notification worker error: %s", e)
         await asyncio.sleep(interval)
+
+
+async def broadcast_worker(client) -> None:
+    """Background task: process pending broadcasts and send to target users."""
+    settings = get_settings()
+    interval = settings.get("notifications", {}).get("broadcast_check_interval_seconds", 60)
+    logger.info("Broadcast worker started, interval=%ds", interval)
+
+    while True:
+        try:
+            pending = db.get_pending_broadcasts()
+            for broadcast in pending:
+                await _process_broadcast(client, broadcast)
+        except Exception as e:
+            logger.error("Broadcast worker error: %s", e)
+        await asyncio.sleep(interval)
+
+
+async def _process_broadcast(client, broadcast: dict) -> None:
+    """Send a single broadcast to all target users."""
+    broadcast_id = broadcast["id"]
+    target = broadcast.get("target", "all")
+    message_text = broadcast.get("message_text", "")
+
+    # Mark as sending immediately to prevent duplicate processing
+    db.update_broadcast_counts(broadcast_id, 0, 0, status="sending")
+
+    if target == "all":
+        users = db.get_all_users()
+    elif target.startswith("event_"):
+        # target format is "event_<id>" — see admin.py broadcast_target_callback
+        try:
+            event_id = int(target.split("_", 1)[1])
+            users = db.get_event_registered_users(event_id)
+        except (ValueError, IndexError):
+            logger.error("Invalid broadcast target: %s", target)
+            db.update_broadcast_counts(broadcast_id, 0, 0, status="sent")
+            return
+    else:
+        logger.error("Unknown broadcast target: %s", target)
+        db.update_broadcast_counts(broadcast_id, 0, 0, status="sent")
+        return
+
+    sent_count = 0
+    failed_count = 0
+    for user in users:
+        try:
+            await client.send_message(user["telegram_id"], message_text)
+            sent_count += 1
+        except Exception as e:
+            logger.warning("Broadcast failed for user %d: %s",
+                           user.get("telegram_id"), e)
+            failed_count += 1
+        # Small delay to avoid flood limits
+        await asyncio.sleep(0.05)
+
+    db.update_broadcast_counts(broadcast_id, sent_count, failed_count, status="sent")
+    logger.info("Broadcast %d sent: %d ok, %d failed", broadcast_id, sent_count, failed_count)

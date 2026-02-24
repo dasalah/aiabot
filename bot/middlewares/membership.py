@@ -2,7 +2,7 @@
 import logging
 from telethon.errors import UserNotParticipantError, ChannelPrivateError
 from bot import database as db
-from bot.config import get_messages, get_channels
+from bot.config import get_messages, get_channels, REQUIRED_CHANNELS
 from bot.utils.keyboards import membership_keyboard
 
 logger = logging.getLogger(__name__)
@@ -12,15 +12,24 @@ async def check_membership(client, telegram_id: int) -> tuple[bool, list[dict]]:
     """
     Check if the user is member of all required channels.
     Returns (all_joined, list_of_missing_channels).
+    Channel sources in priority order: env REQUIRED_CHANNELS > DB > config file.
     """
-    # Channels from DB take priority; fall back to config file
-    db_channels = db.get_required_channels()
-    if not db_channels:
-        cfg = get_channels()
-        db_channels = cfg.get("required_channels", [])
+    if REQUIRED_CHANNELS:
+        channels = [
+            {
+                "channel_username": ch.lstrip("@"),
+                "channel_title": ch,
+            }
+            for ch in REQUIRED_CHANNELS
+        ]
+    else:
+        channels = db.get_required_channels()
+        if not channels:
+            cfg = get_channels()
+            channels = cfg.get("required_channels", [])
 
     missing = []
-    for ch in db_channels:
+    for ch in channels:
         username = ch.get("channel_username") or ch.get("username", "")
         if not username:
             continue
